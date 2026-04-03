@@ -1,3 +1,108 @@
+/* ===== GAME SHELL — full-screen canvas, no scroll, kid-made style ===== */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  overflow: hidden;
+  background: #000;
+  font-family: 'Courier New', Courier, monospace;
+  user-select: none;
+}
+
+canvas {
+  display: block;
+  width: 100vw !important;
+  height: 100vh !important;
+  image-rendering: pixelated;
+}
+
+/* ───── UI Overlay (DOM panel on top of canvas) ───── */
+#ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Hearts / health row */
+#hearts {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  font-size: 28px;
+  line-height: 1;
+  pointer-events: none;
+  text-shadow: 2px 2px 0 #000;
+}
+
+/* Active character name badge */
+#leader-badge {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.55);
+  color: #ffe96b;
+  font-size: 14px;
+  letter-spacing: 1px;
+  padding: 4px 12px;
+  border: 2px solid #ffe96b;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+/* Mute indicator */
+#mute-badge {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  font-size: 20px;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+/* ───── Modal screens (start / pause / game-over) ───── */
+#modal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: rgba(0,0,0,0.72);
+  pointer-events: all;
+}
+
+#modal h1 {
+  color: #ffe96b;
+  font-size: clamp(28px, 6vw, 64px);
+  letter-spacing: 3px;
+  text-shadow: 3px 3px 0 #a00;
+  text-align: center;
+}
+
+#modal p {
+  color: #ddd;
+  font-size: clamp(14px, 2.5vw, 22px);
+  text-align: center;
+}
+
+#modal.hidden { display: none; }
+
+/* ───── Controls hint ───── */
+#controls-hint {
+  position: absolute;
+  bottom: 10px;
+  left: 0; right: 0;
+  text-align: center;
+  color: rgba(255,255,255,0.4);
+  font-size: 11px;
+  pointer-events: none;
+  letter-spacing: 1px;
+}
+
+/* ───── :root kept minimal ───── */
 :root {
   --text: #6b6375;
   --text-h: #08060d;
