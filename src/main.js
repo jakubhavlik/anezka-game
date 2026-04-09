@@ -1,61 +1,82 @@
 // ============================================================
-//  ANEZKA GAME  –  2D Retro Side-Scroller  (Three.js + Vite)
+//  ANEZKA GAME  –  2.5D Isometric RPG  (Three.js + Vite)
 //  Kind of made by a 9-year-old  🎮
 // ============================================================
 import './style.css';
 import * as THREE from 'three';
 
+// ─── Asset imports (placeholder PNGs – daughter will draw over these) ───
+import aladdinUrl      from './assets/sprites/aladdin.png';
+import abuUrl          from './assets/sprites/abu.png';
+import jasmineUrl      from './assets/sprites/jasmine.png';
+import carpetUrl       from './assets/sprites/carpet.png';
+import enemyBasicUrl   from './assets/sprites/enemy-basic.png';
+import bldResUrl       from './assets/sprites/building-residential.png';
+import bldShopUrl      from './assets/sprites/building-shop.png';
+import bldCafeUrl      from './assets/sprites/building-cafe.png';
+import bldTowerUrl     from './assets/sprites/building-tower.png';
+import treeUrl         from './assets/sprites/tree.png';
+import bushUrl         from './assets/sprites/bush.png';
+import lampUrl         from './assets/sprites/lamp.png';
+import benchUrl        from './assets/sprites/bench.png';
+import stallUrl        from './assets/sprites/market-stall.png';
+import shadowUrl       from './assets/sprites/shadow.png';
+import grassTexUrl     from './assets/textures/ground-grass.png';
+import cobbleTexUrl    from './assets/textures/ground-cobble.png';
+
 // ─────────────────────────────────────────────────────────────
-//  CONSTANTS  (tune everything from here)
+//  CONSTANTS
 // ─────────────────────────────────────────────────────────────
 const C = {
   // World
-  SCREEN_W: 20,          // orthographic units visible horizontally
-  SCREEN_H: 12,          // orthographic units visible vertically
-  WORLD_SCREENS_W: 4,    // level is 4 screens wide (cozy town square)
-  WORLD_SCREENS_H: 3,    // level is 3 screens tall
-  FLOOR_Y: -4.5,         // y-position of the floor top surface
-
-  // Physics
-  GRAVITY: -28,
-  JUMP_VY: 15,
-  MOVE_SPD: 7,
-  FLY_SPD: 6,
-  FLY_THRUST: 9,         // vertical speed when Space held (flying char)
-  FLY_DAMP: 0.88,        // Y-velocity damping each frame for flyer
-  MAX_FALL: -22,
-  ATTACK_RANGE: 1.6,     // horizontal reach of melee attack
-  ATTACK_COOLDOWN: 0.45, // seconds between attacks
-  ENEMY_SPD: 2.5,
-  KNOCKBACK_VX: 6,
-  KNOCKBACK_VY: 4,
-
-  // Party leash
-  LEASH_FRAMES: 10,      // followers track position 10 samples ago
-  LEASH_LERP: 0.25,      // lerp factor toward history target
+  WORLD_SIZE: 80,           // XZ extent in world units
 
   // Camera
-  CAM_LERP: 0.1,
-  CAM_DEAD_X: 2,         // half dead-zone width before cam moves
+  CAM_FOV: 50,
+  CAM_HEIGHT: 22,           // Y offset above target
+  CAM_DIST: 22,             // Z offset behind target
+  CAM_LERP: 0.08,           // smooth follow factor
 
-  // Parallax multipliers (fraction of camera dx applied each frame)
-  PAR_FAR:  0.15,
-  PAR_MID:  0.40,
-  PAR_ACT:  1.00,        // action plane = world, moves 1:1
+  // Movement
+  MOVE_SPD: 8,
+  CARPET_HOVER: 0.6,        // extra Y for carpet
+  CARPET_BOB_AMP: 0.15,
+  CARPET_BOB_FREQ: 3,
 
-  // DT safety clamp
-  MAX_DT: 0.033,
+  // Combat
+  ATTACK_RANGE: 3.0,
+  ATTACK_CONE: Math.PI / 2, // half-angle in radians (90° each side = 180° semicircle)
+  ATTACK_COOLDOWN: 0.4,
+  KNOCKBACK_SPD: 12,
+  KNOCKBACK_DUR: 0.3,
 
-  // Health
-  LEADER_MAX_HP: 10,
+  // Enemy
+  ENEMY_SPD: 2.5,
+  ENEMY_CONTACT_RANGE: 1.2,
   ENEMY_MAX_HP: 2,
+
+  // Leader
+  LEADER_MAX_HP: 10,
+  HURT_COOLDOWN: 1.2,
+
+  // Party leash
+  LEASH_FRAMES: 12,
+  LEASH_LERP: 0.22,
+
+  // Sprite sizes (world units)
+  CHAR_W: 1.2,
+  CHAR_H: 1.8,
+  CARPET_W: 1.6,
+  CARPET_H: 1.0,
+  ENEMY_W: 1.2,
+  ENEMY_H: 1.2,
+
+  // DT clamp
+  MAX_DT: 0.033,
 };
 
-const WORLD_W = C.SCREEN_W * C.WORLD_SCREENS_W;  // 80 units
-const WORLD_H = C.SCREEN_H * C.WORLD_SCREENS_H;   // 36 units
-
 // ─────────────────────────────────────────────────────────────
-//  DOM SETUP  (inject the UI shell, mount canvas into #app)
+//  DOM SETUP
 // ─────────────────────────────────────────────────────────────
 document.querySelector('#app').innerHTML = `
   <div id="ui">
@@ -66,48 +87,73 @@ document.querySelector('#app').innerHTML = `
       <h1 id="modal-title">ANEZKA GAME</h1>
       <p id="modal-msg">Press any key or tap to start!</p>
     </div>
-    <div id="controls-hint">WASD / Space = jump | Tab = switch hero | F = attack | Esc = pause | M = mute</div>
+    <div id="controls-hint">WASD = move | Tab = switch hero | F = attack | Esc = pause | M = mute</div>
   </div>
 `;
-const uiEl      = document.getElementById('ui');
-const heartsEl  = document.getElementById('hearts');
-const badgeEl   = document.getElementById('leader-badge');
-const muteBadge = document.getElementById('mute-badge');
-const modalEl   = document.getElementById('modal');
-const modalTitle= document.getElementById('modal-title');
-const modalMsg  = document.getElementById('modal-msg');
+const heartsEl   = document.getElementById('hearts');
+const badgeEl    = document.getElementById('leader-badge');
+const muteBadge  = document.getElementById('mute-badge');
+const modalEl    = document.getElementById('modal');
+const modalTitle = document.getElementById('modal-title');
+const modalMsg   = document.getElementById('modal-msg');
 
 // ─────────────────────────────────────────────────────────────
 //  RENDERER + SCENE + CAMERA
 // ─────────────────────────────────────────────────────────────
-const renderer = new THREE.WebGLRenderer({ antialias: false });
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = false;
 document.querySelector('#app').prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xbfdcf4);
+scene.background = new THREE.Color(0x87ceeb);
 
-// Orthographic camera: left/right/top/bottom in world units
-function makeOrtho() {
-  const aspect = window.innerWidth / window.innerHeight;
-  const hw = C.SCREEN_W / 2;
-  const hh = hw / aspect;
-  return new THREE.OrthographicCamera(-hw, hw, hh, -hh, -100, 100);
-}
-let camera = makeOrtho();
-camera.position.z = 10;
+const camera = new THREE.PerspectiveCamera(
+  C.CAM_FOV,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  500,
+);
+camera.position.set(C.WORLD_SIZE / 2, C.CAM_HEIGHT, C.WORLD_SIZE / 2 + C.CAM_DIST);
+camera.lookAt(C.WORLD_SIZE / 2, 0, C.WORLD_SIZE / 2);
+
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+scene.add(ambientLight);
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+dirLight.position.set(20, 30, 20);
+scene.add(dirLight);
 
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
-  const c2 = makeOrtho();
-  camera.left  = c2.left;  camera.right = c2.right;
-  camera.top   = c2.top;   camera.bottom = c2.bottom;
+  camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
 });
 
 // ─────────────────────────────────────────────────────────────
-//  AUDIO  (simple preloaded tones via Web Audio, no files needed)
+//  TEXTURE LOADER
+// ─────────────────────────────────────────────────────────────
+const loader = new THREE.TextureLoader();
+const _texCache = {};
+
+function loadTex(url, repeatX, repeatY) {
+  const key = `${url}_${repeatX}_${repeatY}`;
+  if (_texCache[key]) return _texCache[key];
+  const tex = loader.load(url);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  if (repeatX || repeatY) {
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(repeatX || 1, repeatY || 1);
+  }
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  _texCache[key] = tex;
+  return tex;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  AUDIO  (simple Web Audio tones, no files)
 // ─────────────────────────────────────────────────────────────
 let audioCtx = null;
 let muted = false;
@@ -132,29 +178,24 @@ function playTone(freq, type, duration, vol = 0.18) {
 }
 
 const SFX = {
-  jump:    () => playTone(420, 'square',   0.12),
   attack:  () => playTone(200, 'sawtooth', 0.09),
   hit:     () => playTone(120, 'square',   0.15),
   defeat:  () => { playTone(180, 'sawtooth', 0.3); setTimeout(() => playTone(100, 'sawtooth', 0.4), 150); },
   menu:    () => playTone(660, 'sine',     0.08),
-  thud:    () => playTone(80,  'square',   0.10, 0.25),
 };
 
 // ─────────────────────────────────────────────────────────────
-//  INPUT  (key set, edge-detect for Tab + F)
+//  INPUT
 // ─────────────────────────────────────────────────────────────
-const keys   = new Set();
+const keys = new Set();
 const justDown = new Set();
 
 window.addEventListener('keydown', e => {
   if (!keys.has(e.code)) justDown.add(e.code);
   keys.add(e.code);
-  // prevent browser scroll on arrow/space
-  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab'].includes(e.code)) e.preventDefault();
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
 });
-window.addEventListener('keyup', e => {
-  keys.delete(e.code);
-});
+window.addEventListener('keyup', e => keys.delete(e.code));
 
 function consumeJust(code) {
   const had = justDown.has(code);
@@ -163,420 +204,148 @@ function consumeJust(code) {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  COLOUR HELPER  (placeholder textures via Canvas2D)
+//  SCREEN-RELATIVE MOVEMENT VECTORS
 // ─────────────────────────────────────────────────────────────
-const _texCache = {};
-function solidTex(color, w = 64, h = 64) {
-  const key = `${color}_${w}_${h}`;
-  if (_texCache[key]) return _texCache[key];
-  const canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = color;
-  ctx.fillRect(0, 0, w, h);
-  // simple 2px inner border for visual separation
-  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(1, 1, w - 2, h - 2);
-  const tex = new THREE.CanvasTexture(canvas);
-  _texCache[key] = tex;
-  return tex;
+const _camFwd = new THREE.Vector3();
+const _camRight = new THREE.Vector3();
+
+function updateCamDirections() {
+  camera.getWorldDirection(_camFwd);
+  _camFwd.y = 0;
+  _camFwd.normalize();
+  _camRight.crossVectors(_camFwd, new THREE.Vector3(0, 1, 0)).normalize().negate();
 }
 
-function hazeTex() {
-  const key = 'haze_tex_v1';
-  if (_texCache[key]) return _texCache[key];
+// ─────────────────────────────────────────────────────────────
+//  COLLISION OBSTACLES  (circular keep-out zones)
+// ─────────────────────────────────────────────────────────────
+let obstacles = [];
 
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  g.addColorStop(0.0, 'rgba(219, 232, 246, 0.00)');
-  g.addColorStop(0.45, 'rgba(202, 220, 240, 0.12)');
-  g.addColorStop(1.0, 'rgba(183, 206, 230, 0.24)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  _texCache[key] = tex;
-  return tex;
-}
-
-function cloudStripTex() {
-  const key = 'cloud_strip_tex_v1';
-  if (_texCache[key]) return _texCache[key];
-
-  const canvas = document.createElement('canvas');
-  canvas.width = 1024;
-  canvas.height = 192;
-  const ctx = canvas.getContext('2d');
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // soft cloud blobs, sparse and calm
-  for (let i = 0; i < 20; i++) {
-    const x = 40 + i * 50 + (i % 3) * 10;
-    const y = 52 + (i % 4) * 12;
-    const r = 20 + (i % 5) * 4;
-    const alpha = 0.28 - (i % 3) * 0.05;
-
-    const g = ctx.createRadialGradient(x, y, r * 0.2, x, y, r);
-    g.addColorStop(0, `rgba(255,255,255,${alpha})`);
-    g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
+function pushOutOfObstacles(wx, wz, entityRadius) {
+  for (const obs of obstacles) {
+    const dx = wx - obs.x;
+    const dz = wz - obs.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    const minDist = obs.radius + entityRadius;
+    if (dist < minDist && dist > 0.001) {
+      const push = minDist - dist;
+      wx += (dx / dist) * push;
+      wz += (dz / dist) * push;
+    }
   }
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.repeat.set(Math.ceil(WORLD_W / 40), 1);
-  _texCache[key] = tex;
-  return tex;
+  return { x: wx, z: wz };
 }
 
-function buildingFacadeTex({ body = '#7f94b2', roof = '#657c9d', windowOn = '#f7ddb2', windowOff = '#a6bdd7', cols = 5, rows = 8, seed = 1 }) {
-  const key = `bld_${body}_${roof}_${windowOn}_${windowOff}_${cols}_${rows}_${seed}`;
-  if (_texCache[key]) return _texCache[key];
-
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-
-  ctx.fillStyle = body;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = roof;
-  ctx.fillRect(0, 0, canvas.width, 16);
-
-  // deterministic pseudo-random lights from seed so facades vary but are stable
-  let rng = seed * 9301 + 49297;
-  const rand = () => {
-    rng = (rng * 233280 + 12345) % 0x7fffffff;
-    return (rng & 0xffff) / 0xffff;
+function clampToWorld(wx, wz, entityRadius) {
+  const lo = entityRadius;
+  const hi = C.WORLD_SIZE - entityRadius;
+  return {
+    x: Math.max(lo, Math.min(hi, wx)),
+    z: Math.max(lo, Math.min(hi, wz)),
   };
-
-  const padX = 8;
-  const padY = 22;
-  const cellW = (canvas.width - padX * 2) / cols;
-  const cellH = (canvas.height - padY * 2) / rows;
-
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      // Leave some slots empty so facades feel calmer and less dense.
-      if (rand() > 0.72) continue;
-      const wx = Math.floor(padX + x * cellW + 4);
-      const wy = Math.floor(padY + y * cellH + 4);
-      const ww = Math.max(5, Math.floor(cellW - 8));
-      const wh = Math.max(8, Math.floor(cellH - 8));
-      const lit = rand() > 0.82;
-      ctx.fillStyle = lit ? windowOn : windowOff;
-      ctx.fillRect(wx, wy, ww, wh);
-    }
-  }
-
-  // door strip at bottom to read as a building near street level
-  ctx.fillStyle = '#6c7d90';
-  ctx.fillRect(canvas.width * 0.35, canvas.height - 28, canvas.width * 0.3, 22);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  _texCache[key] = tex;
-  return tex;
-}
-
-function streetTex() {
-  const key = 'street_tex_v2';
-  if (_texCache[key]) return _texCache[key];
-  const canvas = document.createElement('canvas');
-  canvas.width = 256; canvas.height = 64;
-  const ctx = canvas.getContext('2d');
-  // cobblestone-like base
-  ctx.fillStyle = '#b5afa6';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  // curb
-  ctx.fillStyle = '#d4cfc5';
-  ctx.fillRect(0, 0, canvas.width, 8);
-  // subtle stone pattern
-  ctx.strokeStyle = 'rgba(0,0,0,0.06)';
-  ctx.lineWidth = 1;
-  for (let x = 0; x < canvas.width; x += 18) {
-    for (let y = 10; y < canvas.height; y += 12) {
-      ctx.strokeRect(x + ((y / 12) % 2) * 9, y, 18, 12);
-    }
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(Math.ceil(WORLD_W / 10), 1);
-  _texCache[key] = tex;
-  return tex;
-}
-
-// ── New texture generators for town-square scenery ──────────
-
-function awningTex(color1 = '#cc4444', color2 = '#ffffff') {
-  const key = `awning_${color1}_${color2}`;
-  if (_texCache[key]) return _texCache[key];
-  const canvas = document.createElement('canvas');
-  canvas.width = 128; canvas.height = 32;
-  const ctx = canvas.getContext('2d');
-  const stripeW = 16;
-  for (let x = 0; x < canvas.width; x += stripeW * 2) {
-    ctx.fillStyle = color1; ctx.fillRect(x, 0, stripeW, canvas.height);
-    ctx.fillStyle = color2; ctx.fillRect(x + stripeW, 0, stripeW, canvas.height);
-  }
-  // bottom scallop edge
-  ctx.fillStyle = color1;
-  for (let x = 0; x < canvas.width; x += 12) {
-    ctx.beginPath(); ctx.arc(x + 6, canvas.height - 2, 5, 0, Math.PI); ctx.fill();
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  _texCache[key] = tex;
-  return tex;
-}
-
-function rooftopTex(color = '#b07050') {
-  const key = `roof_${color}`;
-  if (_texCache[key]) return _texCache[key];
-  const canvas = document.createElement('canvas');
-  canvas.width = 128; canvas.height = 24;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = color;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  // tile rows
-  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-  ctx.lineWidth = 1;
-  for (let y = 0; y < canvas.height; y += 6) {
-    const off = (y / 6) % 2 === 0 ? 0 : 8;
-    for (let x = off; x < canvas.width; x += 16) {
-      ctx.strokeRect(x, y, 16, 6);
-    }
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  _texCache[key] = tex;
-  return tex;
-}
-
-function ledgeTex(color = '#c8bfb0') {
-  const key = `ledge_${color}`;
-  if (_texCache[key]) return _texCache[key];
-  const canvas = document.createElement('canvas');
-  canvas.width = 128; canvas.height = 16;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = color;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  // shadow line at bottom
-  ctx.fillStyle = 'rgba(0,0,0,0.12)';
-  ctx.fillRect(0, canvas.height - 3, canvas.width, 3);
-  // highlight at top
-  ctx.fillStyle = 'rgba(255,255,255,0.15)';
-  ctx.fillRect(0, 0, canvas.width, 2);
-  const tex = new THREE.CanvasTexture(canvas);
-  _texCache[key] = tex;
-  return tex;
-}
-
-function shopFrontTex({ wall = '#d4c4a0', trim = '#8b7355', windowColor = '#c8dce8', doorColor = '#6b5040', signColor = '#e8d8b0', seed = 1 }) {
-  const key = `shop_${wall}_${trim}_${seed}`;
-  if (_texCache[key]) return _texCache[key];
-  const canvas = document.createElement('canvas');
-  canvas.width = 128; canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  // wall
-  ctx.fillStyle = wall;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  // trim band at top
-  ctx.fillStyle = trim;
-  ctx.fillRect(0, 0, canvas.width, 10);
-  // large display window
-  ctx.fillStyle = windowColor;
-  ctx.fillRect(10, 30, canvas.width - 20, 55);
-  // window frame
-  ctx.strokeStyle = trim;
-  ctx.lineWidth = 3;
-  ctx.strokeRect(10, 30, canvas.width - 20, 55);
-  // vertical divider
-  ctx.beginPath();
-  ctx.moveTo(canvas.width / 2, 30);
-  ctx.lineTo(canvas.width / 2, 85);
-  ctx.stroke();
-  // door
-  ctx.fillStyle = doorColor;
-  ctx.fillRect(canvas.width * 0.38, canvas.height - 38, canvas.width * 0.24, 36);
-  // sign area
-  ctx.fillStyle = signColor;
-  ctx.fillRect(20, 12, canvas.width - 40, 14);
-  ctx.strokeStyle = trim;
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(20, 12, canvas.width - 40, 14);
-  const tex = new THREE.CanvasTexture(canvas);
-  _texCache[key] = tex;
-  return tex;
-}
-
-function mountainTex(color = '#9db8d4', snowColor = '#e8f0f8') {
-  const key = `mtn_${color}_${snowColor}`;
-  if (_texCache[key]) return _texCache[key];
-  const canvas = document.createElement('canvas');
-  canvas.width = 256; canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  // mountain body
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.moveTo(0, canvas.height);
-  ctx.lineTo(canvas.width * 0.5, 20);
-  ctx.lineTo(canvas.width, canvas.height);
-  ctx.closePath();
-  ctx.fill();
-  // snow cap
-  ctx.fillStyle = snowColor;
-  ctx.beginPath();
-  ctx.moveTo(canvas.width * 0.35, canvas.height * 0.35);
-  ctx.lineTo(canvas.width * 0.5, 20);
-  ctx.lineTo(canvas.width * 0.65, canvas.height * 0.35);
-  ctx.closePath();
-  ctx.fill();
-  const tex = new THREE.CanvasTexture(canvas);
-  _texCache[key] = tex;
-  return tex;
-}
-
-function treeTex(trunk = '#8b7355', leaf = '#6aaa55') {
-  const key = `tree_${trunk}_${leaf}`;
-  if (_texCache[key]) return _texCache[key];
-  const canvas = document.createElement('canvas');
-  canvas.width = 64; canvas.height = 96;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  // trunk
-  ctx.fillStyle = trunk;
-  ctx.fillRect(26, 56, 12, 40);
-  // crown (three overlapping circles)
-  ctx.fillStyle = leaf;
-  ctx.beginPath(); ctx.arc(32, 36, 22, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(20, 44, 16, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(44, 44, 16, 0, Math.PI * 2); ctx.fill();
-  const tex = new THREE.CanvasTexture(canvas);
-  _texCache[key] = tex;
-  return tex;
-}
-
-// Wing texture: body + two wing blobs
-function wingTex(bodyColor, wingColor) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 64; canvas.height = 64;
-  const ctx = canvas.getContext('2d');
-  // body
-  ctx.fillStyle = bodyColor;
-  ctx.fillRect(20, 16, 24, 32);
-  // wings
-  ctx.fillStyle = wingColor;
-  ctx.fillRect(2,  20, 18, 20);
-  ctx.fillRect(44, 20, 18, 20);
-  // eyes
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(26, 22, 5, 5);
-  ctx.fillRect(34, 22, 5, 5);
-  ctx.fillStyle = '#000';
-  ctx.fillRect(28, 23, 3, 3);
-  ctx.fillRect(36, 23, 3, 3);
-  return new THREE.CanvasTexture(canvas);
 }
 
 // ─────────────────────────────────────────────────────────────
-//  AABB HELPER
+//  SHADOW HELPER
 // ─────────────────────────────────────────────────────────────
-// Returns { x, y, hw, hh } bounding box centred on position
-function aabb(pos, hw, hh) { return { x: pos.x, y: pos.y, hw, hh }; }
-function aabbOverlap(a, b) {
-  return Math.abs(a.x - b.x) < a.hw + b.hw &&
-         Math.abs(a.y - b.y) < a.hh + b.hh;
-}
+const shadowTex = loadTex(shadowUrl);
 
-// ─────────────────────────────────────────────────────────────
-//  PLATFORM CLASS
-// ─────────────────────────────────────────────────────────────
-class Platform {
-  constructor(x, y, w, h, color = '#9ea88f') {
-    this.x = x; this.y = y; this.w = w; this.h = h;
-    this.hw = w / 2; this.hh = h / 2;
-    const geo = new THREE.PlaneGeometry(w, h);
-    const mat = new THREE.MeshBasicMaterial({ map: solidTex(color, 128, 32) });
-    this.mesh = new THREE.Mesh(geo, mat);
-    this.mesh.position.set(x, y, 0);
-    scene.add(this.mesh);
-  }
+function createShadow() {
+  const geo = new THREE.PlaneGeometry(1.4, 0.8);
+  const mat = new THREE.MeshBasicMaterial({
+    map: shadowTex,
+    transparent: true,
+    opacity: 0.3,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.02;
+  scene.add(mesh);
+  return mesh;
 }
 
 // ─────────────────────────────────────────────────────────────
 //  CHARACTER CLASS
 // ─────────────────────────────────────────────────────────────
-const CHAR_DEF = [
-  { name: 'ALADDIN', color: '#e8a030', type: 'ground' },
-  { name: 'ABU',     color: '#c05010', type: 'ground' },
-  { name: 'JASMINE', color: '#30a0e8', type: 'ground' },
-  { name: 'CARPET',  color: '#9030e0', type: 'fly',    bodyColor: '#9030e0', wingColor: '#e070ff' },
+const CHAR_DEFS = [
+  { name: 'ALADDIN', url: aladdinUrl, type: 'ground', w: C.CHAR_W, h: C.CHAR_H },
+  { name: 'ABU',     url: abuUrl,     type: 'ground', w: C.CHAR_W * 0.75, h: C.CHAR_H * 0.7 },
+  { name: 'JASMINE', url: jasmineUrl, type: 'ground', w: C.CHAR_W, h: C.CHAR_H },
+  { name: 'CARPET',  url: carpetUrl,  type: 'fly',    w: C.CARPET_W, h: C.CARPET_H },
 ];
-const CHAR_HW = 0.5;  // half-width
-const CHAR_HH = 0.65; // half-height
 
 class Character {
-  constructor(def, startX) {
-    this.name  = def.name;
-    this.type  = def.type;         // 'ground' | 'fly'
-    this.vx    = 0;
-    this.vy    = 0;
-    this.grounded = false;
-    this.hp    = C.LEADER_MAX_HP;
+  constructor(def, startX, startZ) {
+    this.name = def.name;
+    this.type = def.type;
+    this.w = def.w;
+    this.h = def.h;
+
+    this.worldX = startX;
+    this.worldZ = startZ;
+    this.vx = 0;
+    this.vz = 0;
+    this.facingAngle = 0;
+    this.hp = C.LEADER_MAX_HP;
     this.attackCooldown = 0;
     this.knockbackTimer = 0;
-    this.facingRight = true;
-    this.animTime = 0;             // used by animation oscillator
+    this.knockbackVx = 0;
+    this.knockbackVz = 0;
 
-    // Sprite
-    const spriteMat = new THREE.SpriteMaterial({
-      map: def.type === 'fly'
-        ? wingTex(def.bodyColor, def.wingColor)
-        : solidTex(def.color),
-      transparent: false,
-    });
-    this.sprite = new THREE.Sprite(spriteMat);
-    this.sprite.scale.set(CHAR_HW * 2 + 0.1, CHAR_HH * 2 + 0.4, 1);
-    this.sprite.position.set(startX, 2, 1);
+    const tex = loadTex(def.url);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+    this.sprite = new THREE.Sprite(mat);
+    this.sprite.scale.set(def.w, def.h, 1);
+    this.sprite.position.set(startX, def.h / 2, startZ);
     scene.add(this.sprite);
 
-    // Attack flash sprite (thin horizontal rect, hidden by default)
-    const atkMat = new THREE.SpriteMaterial({ map: solidTex('#ffff00', 32, 8), transparent: true, opacity: 0 });
+    this.shadow = createShadow();
+
+    const atkMat = new THREE.SpriteMaterial({
+      color: 0xffff00,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
     this.atkSprite = new THREE.Sprite(atkMat);
-    this.atkSprite.scale.set(C.ATTACK_RANGE * 1.4, 0.3, 1);
-    this.atkSprite.position.set(startX, 2, 0.5);
+    this.atkSprite.scale.set(C.ATTACK_RANGE * 0.8, 0.6, 1);
     scene.add(this.atkSprite);
 
-    // Leash history buffer: circular array of {x,y}
     this.history = [];
-    const pos = { x: startX, y: 2 };
-    for (let i = 0; i < C.LEASH_FRAMES + 5; i++) this.history.push({ ...pos });
+    for (let i = 0; i < C.LEASH_FRAMES + 5; i++) {
+      this.history.push({ x: startX, z: startZ });
+    }
     this.histIdx = 0;
   }
 
-  get pos() { return this.sprite.position; }
-
-  // Push current position into the circular history buffer
   recordHistory() {
-    this.history[this.histIdx] = { x: this.pos.x, y: this.pos.y };
+    this.history[this.histIdx] = { x: this.worldX, z: this.worldZ };
     this.histIdx = (this.histIdx + 1) % this.history.length;
   }
 
-  // Returns the position stored N frames ago
   historyAt(framesAgo) {
     const len = this.history.length;
     const idx = ((this.histIdx - framesAgo - 1) % len + len) % len;
     return this.history[idx];
+  }
+
+  syncSprite(time) {
+    const hoverY = this.type === 'fly'
+      ? C.CARPET_HOVER + C.CARPET_BOB_AMP * Math.sin(time * C.CARPET_BOB_FREQ)
+      : 0;
+    const speed = Math.sqrt(this.vx * this.vx + this.vz * this.vz);
+    const walkBob = speed > 0.5 ? 0.06 * Math.sin(time * 12) : 0;
+
+    this.sprite.position.set(this.worldX, this.h / 2 + hoverY + walkBob, this.worldZ);
+    this.shadow.position.set(this.worldX, 0.02, this.worldZ);
+  }
+
+  remove() {
+    scene.remove(this.sprite);
+    scene.remove(this.shadow);
+    scene.remove(this.atkSprite);
   }
 }
 
@@ -584,368 +353,257 @@ class Character {
 //  ENEMY CLASS
 // ─────────────────────────────────────────────────────────────
 class Enemy {
-  constructor(x, y, minX, maxX, color = '#e03030') {
-    this.minX = minX; this.maxX = maxX;
-    this.vx = C.ENEMY_SPD;
-    this.vy = 0;
-    this.grounded = false;
+  constructor(x, z, patrolPoints) {
+    this.worldX = x;
+    this.worldZ = z;
+    this.patrolPoints = patrolPoints;
+    this.patrolIdx = 0;
     this.hp = C.ENEMY_MAX_HP;
     this.dead = false;
     this.knockbackTimer = 0;
-    const mat = new THREE.SpriteMaterial({ map: solidTex(color, 56, 56) });
+    this.knockbackVx = 0;
+    this.knockbackVz = 0;
+    this.flashTimer = 0;
+
+    const tex = loadTex(enemyBasicUrl);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
     this.sprite = new THREE.Sprite(mat);
-    this.sprite.scale.set(1.1, 1.1, 1);
-    this.sprite.position.set(x, y, 1);
+    this.sprite.scale.set(C.ENEMY_W, C.ENEMY_H, 1);
+    this.sprite.position.set(x, C.ENEMY_H / 2, z);
     scene.add(this.sprite);
-    // eyes
-    const eMat = new THREE.SpriteMaterial({ map: solidTex('#fff', 16, 8) });
-    this.eyeSprite = new THREE.Sprite(eMat);
-    this.eyeSprite.scale.set(0.6, 0.25, 1);
-    this.eyeSprite.position.set(x, y + 0.25, 1.1);
-    scene.add(this.eyeSprite);
+
+    this.shadow = createShadow();
+    this._origColor = new THREE.Color(1, 1, 1);
   }
 
-  get pos() { return this.sprite.position; }
+  syncSprite(time) {
+    const bob = 0.04 * Math.sin(time * 4 + this.worldX);
+    this.sprite.position.set(this.worldX, C.ENEMY_H / 2 + bob, this.worldZ);
+    this.shadow.position.set(this.worldX, 0.02, this.worldZ);
+
+    if (this.flashTimer > 0) {
+      this.sprite.material.color.setRGB(3, 1, 1);
+    } else {
+      this.sprite.material.color.copy(this._origColor);
+    }
+  }
 
   remove() {
     scene.remove(this.sprite);
-    scene.remove(this.eyeSprite);
+    scene.remove(this.shadow);
     this.dead = true;
   }
 }
 
 // ─────────────────────────────────────────────────────────────
-//  BUILDING COMPOSER  –  facade (visual) + collision platforms
+//  BUILDING HELPER
 // ─────────────────────────────────────────────────────────────
-function createBuilding({ x, w, stories, style = 'residential', roofColor, bodyColor, awningColor, awningColor2, seed = 1 }) {
-  const storyH = 1.6;
-  const h = stories * storyH;
-  const baseY = C.FLOOR_Y + h / 2;
-
-  // facade body (visual only, z = -0.1)
-  const facadePalette = {
-    residential: { body: bodyColor || '#d6cbb8', roof: roofColor || '#b07050', windowOn: '#f7ddb2', windowOff: '#c8d4de' },
-    shop:        { body: bodyColor || '#e8dcc4', roof: roofColor || '#9b7c5a', windowOn: '#d4e6f0', windowOff: '#c0cdd6' },
-    cafe:        { body: bodyColor || '#e0d0b4', roof: roofColor || '#c06040', windowOn: '#daeaf0', windowOff: '#c4d0d8' },
-    tall:        { body: bodyColor || '#c8bca8', roof: roofColor || '#8a6844', windowOn: '#f0e0c4', windowOff: '#bcc8d4' },
-  };
-  const pal = facadePalette[style] || facadePalette.residential;
-
-  const facadeTex = buildingFacadeTex({
-    body: pal.body, roof: pal.roof,
-    windowOn: pal.windowOn, windowOff: pal.windowOff,
-    cols: Math.max(2, Math.round(w / 1.5)),
-    rows: Math.min(stories, 6),
-    seed,
+function createBuilding(x, z, texUrl, worldW, worldH, collisionRadius) {
+  const tex = loadTex(texUrl);
+  const geo = new THREE.PlaneGeometry(worldW, worldH);
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: false,
+    side: THREE.DoubleSide,
   });
-  const facadeGeo = new THREE.PlaneGeometry(w, h);
-  const facadeMat = new THREE.MeshBasicMaterial({ map: facadeTex });
-  const facade = new THREE.Mesh(facadeGeo, facadeMat);
-  facade.position.set(x, baseY, -0.1);
-  scene.add(facade);
-
-  // ground-floor shop front overlay for shop/cafe styles
-  if (style === 'shop' || style === 'cafe') {
-    const sfTex = shopFrontTex({ wall: pal.body, trim: pal.roof, seed });
-    const sfGeo = new THREE.PlaneGeometry(w, storyH);
-    const sfMat = new THREE.MeshBasicMaterial({ map: sfTex });
-    const sf = new THREE.Mesh(sfGeo, sfMat);
-    sf.position.set(x, C.FLOOR_Y + storyH / 2, -0.05);
-    scene.add(sf);
-  }
-
-  const result = { x, w, h, stories, platforms: [] };
-
-  // ── Rooftop platform ──────────────────────────────────
-  const roofPlat = new Platform(x, C.FLOOR_Y + h + 0.15, w + 0.3, 0.35);
-  roofPlat.mesh.material.map = rooftopTex(pal.roof);
-  roofPlat.mesh.material.needsUpdate = true;
-  result.platforms.push(roofPlat);
-  platforms.push(roofPlat);
-
-  // ── Awning (1 story up) for shop/cafe ─────────────────
-  if (style === 'shop' || style === 'cafe') {
-    const aw = w * 0.7;
-    const awY = C.FLOOR_Y + storyH + 0.2;
-    const awPlat = new Platform(x, awY, aw, 0.3);
-    awPlat.mesh.material.map = awningTex(awningColor || '#cc5544', awningColor2 || '#f8f0e0');
-    awPlat.mesh.material.needsUpdate = true;
-    result.platforms.push(awPlat);
-    platforms.push(awPlat);
-    // decorative overhang in front of wall
-    const decGeo = new THREE.PlaneGeometry(aw + 0.4, 0.35);
-    const decMat = new THREE.MeshBasicMaterial({ map: awningTex(awningColor || '#cc5544', awningColor2 || '#f8f0e0') });
-    const dec = new THREE.Mesh(decGeo, decMat);
-    dec.position.set(x, awY + 0.05, 0.3);
-    scene.add(dec);
-  }
-
-  // ── Window ledges every 2 stories ─────────────────────
-  for (let s = 2; s < stories; s += 2) {
-    const ledgeW = w * 0.55;
-    const ledgeY = C.FLOOR_Y + s * storyH + 0.05;
-    const lPlat = new Platform(x, ledgeY, ledgeW, 0.22);
-    lPlat.mesh.material.map = ledgeTex('#ccc4b4');
-    lPlat.mesh.material.needsUpdate = true;
-    result.platforms.push(lPlat);
-    platforms.push(lPlat);
-  }
-
-  return result;
-}
-
-// ─────────────────────────────────────────────────────────────
-//  STREET DETAILS  (lamps, benches, plants)
-// ─────────────────────────────────────────────────────────────
-function addStreetDetails() {
-  // 4 lamp posts across the town
-  const lampXs = [6, 25, 48, 68];
-  for (const lx of lampXs) {
-    const pole = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.14, 2.0),
-      new THREE.MeshBasicMaterial({ map: solidTex('#5a5a5a', 8, 64) }),
-    );
-    pole.position.set(lx, C.FLOOR_Y + 1.1, 0.35);
-    scene.add(pole);
-    const head = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.55, 0.22),
-      new THREE.MeshBasicMaterial({ map: solidTex('#988878', 24, 8) }),
-    );
-    head.position.set(lx + 0.15, C.FLOOR_Y + 2.05, 0.36);
-    scene.add(head);
-    const glow = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.9, 0.4),
-      new THREE.MeshBasicMaterial({ map: solidTex('#f8e8b8', 16, 8), transparent: true, opacity: 0.07 }),
-    );
-    glow.position.set(lx + 0.15, C.FLOOR_Y + 1.9, 0.34);
-    scene.add(glow);
-    twinkleLights.push(glow.material);
-  }
-
-  // 1 crosswalk
-  for (let i = 0; i < 5; i++) {
-    const stripe = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.2, 0.16),
-      new THREE.MeshBasicMaterial({ map: solidTex('#e8e4dc', 16, 4), transparent: true, opacity: 0.35 }),
-    );
-    stripe.position.set(35 + i * 0.8, C.FLOOR_Y - 0.12, 0.33);
-    scene.add(stripe);
-  }
-
-  // Potted plants / bushes
-  const plantXs = [10, 32, 52, 72];
-  for (const px of plantXs) {
-    // pot
-    const pot = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.5, 0.4),
-      new THREE.MeshBasicMaterial({ map: solidTex('#b08060', 16, 16) }),
-    );
-    pot.position.set(px, C.FLOOR_Y + 0.2, 0.4);
-    scene.add(pot);
-    // bush
-    const bush = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.7, 0.55),
-      new THREE.MeshBasicMaterial({ map: solidTex('#6aaa55', 16, 16) }),
-    );
-    bush.position.set(px, C.FLOOR_Y + 0.6, 0.41);
-    scene.add(bush);
-  }
-
-  // Bench
-  const bench = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.6, 0.6),
-    new THREE.MeshBasicMaterial({ map: solidTex('#9a8070', 32, 16) }),
-  );
-  bench.position.set(40, C.FLOOR_Y + 0.3, 0.38);
-  scene.add(bench);
-}
-
-// ─────────────────────────────────────────────────────────────
-//  BUILDING HELPER  (generic decorative mesh)
-// ─────────────────────────────────────────────────────────────
-function addBuilding(x, y, w, h, color, zDepth = 0, map = null) {
-  const geo = new THREE.PlaneGeometry(w, h);
-  const mat = new THREE.MeshBasicMaterial({ map: map || solidTex(color, 32, 128) });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(x, y, zDepth);
+  mesh.position.set(x, worldH / 2, z);
   scene.add(mesh);
+
+  if (collisionRadius > 0) {
+    obstacles.push({ x, z, radius: collisionRadius });
+  }
   return mesh;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  PROP / TREE HELPER
+// ─────────────────────────────────────────────────────────────
+function createProp(x, z, texUrl, worldW, worldH, collisionRadius) {
+  const tex = loadTex(texUrl);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+  const spr = new THREE.Sprite(mat);
+  spr.scale.set(worldW, worldH, 1);
+  spr.position.set(x, worldH / 2, z);
+  scene.add(spr);
+
+  if (collisionRadius > 0) {
+    obstacles.push({ x, z, radius: collisionRadius });
+  }
+  return spr;
 }
 
 // ─────────────────────────────────────────────────────────────
 //  GAME STATE
 // ─────────────────────────────────────────────────────────────
-let platforms  = [];
-let enemies    = [];
-let chars      = [];
-let parLayer1, parLayer2;
-let twinkleLights = [];
-let leaderIdx  = 0;
-let camX       = 0;
-let camY       = 0;
+let chars = [];
+let enemies = [];
+let leaderIdx = 0;
 let gameState = 'start';
+let leaderHurtCooldown = 0;
+
+let camTargetX = C.WORLD_SIZE / 2;
+let camTargetZ = C.WORLD_SIZE / 2;
 
 // ─────────────────────────────────────────────────────────────
-//  CREATE LEVEL  –  Cozy Town Square (3 zones across ~80 units)
+//  CREATE GROUND
 // ─────────────────────────────────────────────────────────────
-function createLevel() {
-  // ── Floor ─────────────────────────────────────────────
-  platforms.push(new Platform(WORLD_W / 2, C.FLOOR_Y - 0.5, WORLD_W + 4, 1.4, '#a89e90'));
+function createGround() {
+  const grassTex = loadTex(grassTexUrl, C.WORLD_SIZE / 4, C.WORLD_SIZE / 4);
+  const grassGeo = new THREE.PlaneGeometry(C.WORLD_SIZE, C.WORLD_SIZE);
+  const grassMat = new THREE.MeshBasicMaterial({ map: grassTex, side: THREE.DoubleSide });
+  const grass = new THREE.Mesh(grassGeo, grassMat);
+  grass.rotation.x = -Math.PI / 2;
+  grass.position.set(C.WORLD_SIZE / 2, 0, C.WORLD_SIZE / 2);
+  scene.add(grass);
 
-  // ── Street cobblestone strip ──────────────────────────
-  const streetGeo = new THREE.PlaneGeometry(WORLD_W + 4, 1.3);
-  const streetMat = new THREE.MeshBasicMaterial({ map: streetTex() });
-  const street = new THREE.Mesh(streetGeo, streetMat);
-  street.position.set(WORLD_W / 2, C.FLOOR_Y + 0.05, 0.25);
-  scene.add(street);
-
-  addStreetDetails();
-
-  // ═══════════════════════════════════════════════════════
-  //  ZONE 1: Residential approach  (x = 2 .. 18)
-  // ═══════════════════════════════════════════════════════
-  createBuilding({ x: 4,  w: 5, stories: 4, style: 'residential', seed: 10, roofColor: '#a86848' });
-  createBuilding({ x: 12, w: 6, stories: 5, style: 'residential', seed: 11, roofColor: '#b07858', bodyColor: '#ccc0a8' });
-  createBuilding({ x: 19, w: 4, stories: 3, style: 'residential', seed: 12, roofColor: '#987050' });
-
-  // ═══════════════════════════════════════════════════════
-  //  ZONE 2: Central town square  (x = 22 .. 55)
-  // ═══════════════════════════════════════════════════════
-  // Bakery/café (left side of square)
-  createBuilding({ x: 24, w: 6, stories: 3, style: 'cafe', seed: 20, awningColor: '#d85040', awningColor2: '#faf0e4', roofColor: '#c06040' });
-
-  // General store (right side of square)
-  createBuilding({ x: 42, w: 7, stories: 4, style: 'shop', seed: 21, awningColor: '#3878a8', awningColor2: '#e8f0f4', roofColor: '#8a6844' });
-
-  // Small market stall / fountain in the centre
-  const stallPlat = new Platform(33, C.FLOOR_Y + 0.6, 3.5, 0.4, '#c8b898');
-  platforms.push(stallPlat);
-  // stall visual
-  const stallGeo = new THREE.PlaneGeometry(3.5, 1.2);
-  const stallMat = new THREE.MeshBasicMaterial({ map: solidTex('#d8c8a4', 64, 32) });
-  const stallMesh = new THREE.Mesh(stallGeo, stallMat);
-  stallMesh.position.set(33, C.FLOOR_Y + 0.6, -0.05);
-  scene.add(stallMesh);
-  // stall awning
-  const stallAwn = new THREE.Mesh(
-    new THREE.PlaneGeometry(4.0, 0.35),
-    new THREE.MeshBasicMaterial({ map: awningTex('#e8a030', '#faf4e0') }),
+  // Cobblestone paths crossing through center
+  const cobbleTex = loadTex(cobbleTexUrl, 8, 1);
+  const pathH = new THREE.Mesh(
+    new THREE.PlaneGeometry(C.WORLD_SIZE * 0.7, 6),
+    new THREE.MeshBasicMaterial({ map: cobbleTex, side: THREE.DoubleSide }),
   );
-  stallAwn.position.set(33, C.FLOOR_Y + 1.3, 0.3);
-  scene.add(stallAwn);
+  pathH.rotation.x = -Math.PI / 2;
+  pathH.position.set(C.WORLD_SIZE / 2, 0.01, C.WORLD_SIZE / 2);
+  scene.add(pathH);
 
-  // Mid-height connector platform between bakery roof and store roof
-  const bridgePlat = new Platform(33, C.FLOOR_Y + 3 * 1.6 + 1.2, 4, 0.3, '#c0b4a0');
-  platforms.push(bridgePlat);
+  const cobbleTex2 = loadTex(cobbleTexUrl, 1, 8);
+  const pathV = new THREE.Mesh(
+    new THREE.PlaneGeometry(6, C.WORLD_SIZE * 0.7),
+    new THREE.MeshBasicMaterial({ map: cobbleTex2, side: THREE.DoubleSide }),
+  );
+  pathV.rotation.x = -Math.PI / 2;
+  pathV.position.set(C.WORLD_SIZE / 2, 0.015, C.WORLD_SIZE / 2);
+  scene.add(pathV);
 
-  // ═══════════════════════════════════════════════════════
-  //  ZONE 3: Far end — tall building + park  (x = 56 .. 78)
-  // ═══════════════════════════════════════════════════════
-  createBuilding({ x: 58, w: 5, stories: 3, style: 'shop', seed: 30, awningColor: '#508848', awningColor2: '#e8f0e0', roofColor: '#887858' });
-
-  // The "tower" — tallest building in the level (6 stories)
-  createBuilding({ x: 68, w: 6, stories: 6, style: 'tall', seed: 31, roofColor: '#806040', bodyColor: '#c4b498' });
-
-  // Park area — trees
-  const treePositions = [61, 74, 77];
-  for (const tx of treePositions) {
-    const tMat = new THREE.SpriteMaterial({ map: treeTex(), transparent: true });
-    const tSprite = new THREE.Sprite(tMat);
-    tSprite.scale.set(2.2, 3.3, 1);
-    tSprite.position.set(tx, C.FLOOR_Y + 1.6, -0.08);
-    scene.add(tSprite);
-  }
-
-  // ── Enemies (7 total, some on ground, some on rooftops) ─
-  const gy = C.FLOOR_Y + 0.75;
-  enemies.push(new Enemy(8,  gy,  3, 16));          // zone 1 ground
-  enemies.push(new Enemy(28, gy, 22, 38));           // zone 2 ground left
-  enemies.push(new Enemy(45, gy, 39, 52));           // zone 2 ground right
-  enemies.push(new Enemy(62, gy, 56, 70));           // zone 3 ground
-  // Rooftop enemies
-  const roofY1 = C.FLOOR_Y + 3 * 1.6 + 0.75;       // 3-story roof
-  enemies.push(new Enemy(24, roofY1, 21, 27));       // café rooftop
-  const roofY2 = C.FLOOR_Y + 4 * 1.6 + 0.75;       // 4-story roof
-  enemies.push(new Enemy(42, roofY2, 38.5, 45.5));   // store rooftop
-  const roofY3 = C.FLOOR_Y + 6 * 1.6 + 0.75;       // 6-story roof
-  enemies.push(new Enemy(68, roofY3, 65, 71));       // tower rooftop
+  // Central plaza circle
+  const plazaTex = loadTex(cobbleTexUrl, 4, 4);
+  const plazaGeo = new THREE.CircleGeometry(8, 32);
+  const plazaMat = new THREE.MeshBasicMaterial({ map: plazaTex, side: THREE.DoubleSide });
+  const plaza = new THREE.Mesh(plazaGeo, plazaMat);
+  plaza.rotation.x = -Math.PI / 2;
+  plaza.position.set(C.WORLD_SIZE / 2, 0.02, C.WORLD_SIZE / 2);
+  scene.add(plaza);
 }
 
 // ─────────────────────────────────────────────────────────────
-//  PARALLAX  –  mountains + background houses
+//  CREATE LEVEL  –  Town Square
 // ─────────────────────────────────────────────────────────────
-function createParallax() {
-  // ── Sky band ──────────────────────────────────────────
-  const skyBand = new THREE.Mesh(
-    new THREE.PlaneGeometry(WORLD_W + 60, 20),
-    new THREE.MeshBasicMaterial({ map: solidTex('#d7ebfb', 256, 64) }),
-  );
-  skyBand.position.set(WORLD_W / 2, C.FLOOR_Y + 14, -4.2);
-  scene.add(skyBand);
+function createLevel() {
+  createGround();
 
-  // ── Cloud strip ───────────────────────────────────────
-  const cloudStrip = new THREE.Mesh(
-    new THREE.PlaneGeometry(WORLD_W + 60, 8),
-    new THREE.MeshBasicMaterial({ map: cloudStripTex(), transparent: true, opacity: 0.45 }),
-  );
-  cloudStrip.position.set(WORLD_W / 2, C.FLOOR_Y + 11, -4.1);
-  scene.add(cloudStrip);
+  const cx = C.WORLD_SIZE / 2;
+  const cz = C.WORLD_SIZE / 2;
 
-  // ── Far mountains (Alpine silhouettes) ────────────────
-  const mtnGroup = new THREE.Group();
-  mtnGroup.position.z = -3.5;
-  const mtnDefs = [
-    { x: -5,  w: 18, h: 12, c: '#9db8d4', sc: '#e8f0f8' },
-    { x: 15,  w: 22, h: 15, c: '#8dadc8', sc: '#e4ecf4' },
-    { x: 38,  w: 16, h: 10, c: '#a0bcd6', sc: '#eaf2fa' },
-    { x: 55,  w: 24, h: 16, c: '#90b0cc', sc: '#e6eef6' },
-    { x: 78,  w: 20, h: 13, c: '#96b4d0', sc: '#e8f0f8' },
-    { x: 95,  w: 15, h:  9, c: '#a4c0d8', sc: '#ecf4fa' },
+  // ═══ BUILDINGS ═══
+  // North side
+  createBuilding(cx - 12, cz - 18, bldResUrl,   6, 12, 3.5);
+  createBuilding(cx,      cz - 20, bldTowerUrl,  5, 15, 3.0);
+  createBuilding(cx + 12, cz - 18, bldResUrl,   6, 12, 3.5);
+
+  // South side
+  createBuilding(cx - 10, cz + 18, bldCafeUrl,  6, 9, 3.5);
+  createBuilding(cx + 6,  cz + 20, bldShopUrl,  6, 9, 3.5);
+  createBuilding(cx + 16, cz + 17, bldResUrl,   5, 12, 3.0);
+
+  // West side
+  createBuilding(cx - 20, cz - 6,  bldShopUrl,  6, 9, 3.5);
+  createBuilding(cx - 22, cz + 6,  bldCafeUrl,  6, 9, 3.5);
+
+  // East side
+  createBuilding(cx + 20, cz - 4,  bldResUrl,   5, 12, 3.0);
+  createBuilding(cx + 22, cz + 8,  bldShopUrl,  6, 9, 3.5);
+
+  // ═══ TREES ═══
+  const treePositions = [
+    [cx - 6, cz - 10], [cx + 8, cz - 12],
+    [cx - 14, cz],      [cx + 14, cz + 2],
+    [cx - 8, cz + 12], [cx + 10, cz + 10],
+    [cx - 25, cz - 15], [cx + 25, cz - 15],
+    [cx - 25, cz + 15], [cx + 25, cz + 15],
+    [cx - 30, cz],      [cx + 30, cz],
+    [15, 15], [65, 15], [15, 65], [65, 65],
+    [10, 40], [70, 40], [40, 10], [40, 70],
   ];
-  for (const m of mtnDefs) {
-    const geo = new THREE.PlaneGeometry(m.w, m.h);
-    const mat = new THREE.MeshBasicMaterial({ map: mountainTex(m.c, m.sc), transparent: true });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(m.x, C.FLOOR_Y + m.h / 2 + 2, 0);
-    mtnGroup.add(mesh);
+  for (const [tx, tz] of treePositions) {
+    createProp(tx, tz, treeUrl, 2.5, 3.8, 0.6);
   }
-  scene.add(mtnGroup);
-  parLayer1 = { group: mtnGroup };
 
-  // ── Mid-distance background houses ────────────────────
-  const houseGroup = new THREE.Group();
-  houseGroup.position.z = -2.2;
-  const housePalette = [
-    { body: '#d2c0a8', roof: '#b08868', windowOn: '#f0e4d0', windowOff: '#c8d4de', cols: 2, rows: 3 },
-    { body: '#c8b8a0', roof: '#a07858', windowOn: '#ece0cc', windowOff: '#c4d0da', cols: 3, rows: 3 },
-    { body: '#dac8b0', roof: '#b89070', windowOn: '#f4e8d4', windowOff: '#ccd6e0', cols: 2, rows: 4 },
+  // ═══ BUSHES ═══
+  const bushPositions = [
+    [cx - 4, cz - 6], [cx + 5, cz - 8],
+    [cx - 3, cz + 7], [cx + 6, cz + 5],
+    [cx - 16, cz - 12], [cx + 18, cz + 12],
   ];
-  let hx = -8;
-  let hi = 0;
-  while (hx < WORLD_W + 20) {
-    const t = (hi * 37) % 97;
-    const hw = 3.5 + (t % 40) / 40 * 3;
-    const hh = 4 + (t % 30) / 30 * 3.5;
-    const p = housePalette[hi % housePalette.length];
-    const tex = buildingFacadeTex({ body: p.body, roof: p.roof, windowOn: p.windowOn, windowOff: p.windowOff, cols: p.cols, rows: p.rows, seed: 2000 + hi });
-    const geo = new THREE.PlaneGeometry(hw, hh);
-    const mat = new THREE.MeshBasicMaterial({ map: tex });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(hx + hw / 2, C.FLOOR_Y + hh / 2 - 0.3, 0);
-    houseGroup.add(mesh);
-    hx += hw * 1.15;
-    hi++;
+  for (const [bx, bz] of bushPositions) {
+    createProp(bx, bz, bushUrl, 1.2, 0.8, 0);
   }
-  scene.add(houseGroup);
-  parLayer2 = { group: houseGroup };
 
-  // ── Gentle depth haze ─────────────────────────────────
-  const haze = new THREE.Mesh(
-    new THREE.PlaneGeometry(WORLD_W + 60, 22),
-    new THREE.MeshBasicMaterial({ map: hazeTex(), transparent: true, opacity: 0.14 }),
-  );
-  haze.position.set(WORLD_W / 2, C.FLOOR_Y + 7.5, -2.9);
-  scene.add(haze);
+  // ═══ LAMPS ═══
+  const lampPositions = [
+    [cx - 3, cz - 3], [cx + 3, cz - 3],
+    [cx - 3, cz + 3], [cx + 3, cz + 3],
+  ];
+  for (const [lx, lz] of lampPositions) {
+    createProp(lx, lz, lampUrl, 0.4, 2.4, 0);
+  }
+
+  // ═══ BENCHES ═══
+  createProp(cx - 6, cz + 2, benchUrl, 1.6, 0.8, 0);
+  createProp(cx + 7, cz - 2, benchUrl, 1.6, 0.8, 0);
+
+  // ═══ MARKET STALL ═══
+  createProp(cx, cz, stallUrl, 3, 2.5, 1.5);
+
+  // ═══ ENEMIES ═══
+  enemies.push(new Enemy(cx + 10, cz, [
+    { x: cx + 10, z: cz - 5 }, { x: cx + 10, z: cz + 5 },
+  ]));
+  enemies.push(new Enemy(cx - 10, cz + 5, [
+    { x: cx - 12, z: cz + 5 }, { x: cx - 6, z: cz + 5 },
+  ]));
+  enemies.push(new Enemy(cx, cz - 12, [
+    { x: cx - 5, z: cz - 12 }, { x: cx + 5, z: cz - 12 },
+  ]));
+  enemies.push(new Enemy(cx + 5, cz + 14, [
+    { x: cx + 2, z: cz + 14 }, { x: cx + 8, z: cz + 14 },
+  ]));
+  enemies.push(new Enemy(cx - 15, cz - 8, [
+    { x: cx - 18, z: cz - 8 }, { x: cx - 12, z: cz - 3 },
+  ]));
+  enemies.push(new Enemy(cx + 16, cz + 12, [
+    { x: cx + 14, z: cz + 10 }, { x: cx + 18, z: cz + 14 },
+  ]));
+  enemies.push(new Enemy(cx - 5, cz + 8, [
+    { x: cx - 8, z: cz + 6 }, { x: cx - 2, z: cz + 10 },
+  ]));
+}
+
+// ─────────────────────────────────────────────────────────────
+//  BACKGROUND (distant scenery)
+// ─────────────────────────────────────────────────────────────
+function createBackground() {
+  const mtnColor = new THREE.Color(0x8faec8);
+  const mtnMat = new THREE.MeshBasicMaterial({ color: mtnColor, side: THREE.DoubleSide });
+
+  for (let i = 0; i < 5; i++) {
+    const w = 15 + Math.random() * 10;
+    const h = 8 + Math.random() * 8;
+    const geo = new THREE.PlaneGeometry(w, h);
+    const m = new THREE.Mesh(geo, mtnMat.clone());
+    m.position.set(10 + i * 16, h / 2, -10);
+    scene.add(m);
+  }
+
+  for (let i = 0; i < 5; i++) {
+    const w = 15 + Math.random() * 10;
+    const h = 6 + Math.random() * 6;
+    const geo = new THREE.PlaneGeometry(w, h);
+    const m = new THREE.Mesh(geo, mtnMat.clone());
+    m.position.set(10 + i * 16, h / 2, C.WORLD_SIZE + 10);
+    m.rotation.y = Math.PI;
+    scene.add(m);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -953,98 +611,85 @@ function createParallax() {
 // ─────────────────────────────────────────────────────────────
 function spawnChars() {
   chars = [];
-  for (let i = 0; i < CHAR_DEF.length; i++) {
-    chars.push(new Character(CHAR_DEF[i], 2 + i * 1.2));
+  const cx = C.WORLD_SIZE / 2;
+  const cz = C.WORLD_SIZE / 2 + 8;
+  for (let i = 0; i < CHAR_DEFS.length; i++) {
+    chars.push(new Character(CHAR_DEFS[i], cx + i * 1.5, cz + i * 0.5));
   }
   leaderIdx = 0;
 }
 
 // ─────────────────────────────────────────────────────────────
-//  COLLISION  –  resolve a character against all platforms
-// ─────────────────────────────────────────────────────────────
-function resolveCollision(ch) {
-  ch.grounded = false;
-  const cy = ch.pos.y;
-  const cx = ch.pos.x;
-
-  for (const plat of platforms) {
-    // Quick broad-phase rejection
-    if (Math.abs(cx - plat.x) > plat.hw + CHAR_HW + 0.2) continue;
-    if (Math.abs(cy - plat.y) > plat.hh + CHAR_HH + 0.2) continue;
-
-    const overlapX = plat.hw + CHAR_HW - Math.abs(cx - plat.x);
-    const overlapY = plat.hh + CHAR_HH - Math.abs(cy - plat.y);
-
-    if (overlapX <= 0 || overlapY <= 0) continue;
-
-    // One-way platforms: only land on top when falling (or standing still)
-    if (cy > plat.y && ch.vy <= 0) {
-      ch.pos.y = plat.y + plat.hh + CHAR_HH;
-      ch.vy = 0;
-      ch.grounded = true;
-    }
-  }
-
-  // World floor
-  if (ch.pos.y < C.FLOOR_Y + CHAR_HH) {
-    ch.pos.y = C.FLOOR_Y + CHAR_HH;
-    ch.vy = 0;
-    ch.grounded = true;
-  }
-
-  // World side walls
-  ch.pos.x = Math.max(CHAR_HW, Math.min(WORLD_W - CHAR_HW, ch.pos.x));
-}
-
-// ─────────────────────────────────────────────────────────────
-//  COMBAT  –  leader attacks nearby enemies
+//  COMBAT  –  40° cone attack
 // ─────────────────────────────────────────────────────────────
 function doAttack(ch) {
   SFX.attack();
-  const dir = ch.facingRight ? 1 : -1;
-  const hitX = ch.pos.x + dir * (C.ATTACK_RANGE / 2 + CHAR_HW);
+  ch.attackCooldown = C.ATTACK_COOLDOWN;
 
-  // Flash attack sprite briefly
-  ch.atkSprite.material.opacity = 0.9;
-  ch.atkSprite.position.set(hitX, ch.pos.y, 0.5);
+  const fx = ch.worldX + Math.cos(ch.facingAngle) * C.ATTACK_RANGE * 0.5;
+  const fz = ch.worldZ + Math.sin(ch.facingAngle) * C.ATTACK_RANGE * 0.5;
+  ch.atkSprite.position.set(fx, ch.h / 2, fz);
+  ch.atkSprite.material.opacity = 0.7;
   setTimeout(() => { ch.atkSprite.material.opacity = 0; }, 120);
 
   for (const en of enemies) {
     if (en.dead) continue;
-    if (Math.abs(en.pos.x - hitX) < C.ATTACK_RANGE &&
-        Math.abs(en.pos.y - ch.pos.y) < 1.2) {
-      en.hp -= 1;
-      SFX.hit();
-      en.vx = (en.pos.x > ch.pos.x ? 1 : -1) * C.KNOCKBACK_VX;
-      en.vy = C.KNOCKBACK_VY;
-      en.knockbackTimer = 0.3;
-      if (en.hp <= 0) {
-        SFX.defeat();
-        en.remove();
-      }
+
+    const dx = en.worldX - ch.worldX;
+    const dz = en.worldZ - ch.worldZ;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+
+    if (dist > C.ATTACK_RANGE) continue;
+
+    const angleToEnemy = Math.atan2(dz, dx);
+    let angleDiff = angleToEnemy - ch.facingAngle;
+    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+    if (Math.abs(angleDiff) > C.ATTACK_CONE) continue;
+
+    en.hp -= 1;
+    SFX.hit();
+    en.flashTimer = 0.15;
+
+    if (dist > 0.01) {
+      en.knockbackVx = (dx / dist) * C.KNOCKBACK_SPD;
+      en.knockbackVz = (dz / dist) * C.KNOCKBACK_SPD;
+      en.knockbackTimer = C.KNOCKBACK_DUR;
+    }
+
+    if (en.hp <= 0) {
+      SFX.defeat();
+      en.remove();
     }
   }
   enemies = enemies.filter(e => !e.dead);
 }
 
 // ─────────────────────────────────────────────────────────────
-//  ENEMY DAMAGE  –  enemies hurt the leader on contact
+//  ENEMY CONTACT DAMAGE
 // ─────────────────────────────────────────────────────────────
-let leaderHurtCooldown = 0;
-
 function checkEnemyContact(dt) {
   if (leaderHurtCooldown > 0) { leaderHurtCooldown -= dt; return; }
   const leader = chars[leaderIdx];
+
   for (const en of enemies) {
     if (en.dead) continue;
-    if (Math.abs(en.pos.x - leader.pos.x) < 1.0 &&
-        Math.abs(en.pos.y - leader.pos.y) < 1.0) {
+    const dx = en.worldX - leader.worldX;
+    const dz = en.worldZ - leader.worldZ;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+
+    if (dist < C.ENEMY_CONTACT_RANGE) {
       leader.hp = Math.max(0, leader.hp - 1);
       SFX.hit();
-      leaderHurtCooldown = 1.2; // 1.2 s grace period
-      leader.knockbackTimer = 0.25;
-      leader.vx = (leader.pos.x > en.pos.x ? 1 : -1) * C.KNOCKBACK_VX;
-      leader.vy = C.KNOCKBACK_VY;
+      leaderHurtCooldown = C.HURT_COOLDOWN;
+
+      if (dist > 0.01) {
+        leader.knockbackVx = (-dx / dist) * C.KNOCKBACK_SPD;
+        leader.knockbackVz = (-dz / dist) * C.KNOCKBACK_SPD;
+        leader.knockbackTimer = C.KNOCKBACK_DUR;
+      }
+
       updateHeartsUI();
       if (leader.hp <= 0) triggerDeath();
       break;
@@ -1056,12 +701,12 @@ function triggerDeath() {
   SFX.defeat();
   gameState = 'dead';
   modalTitle.textContent = 'GAME OVER';
-  modalMsg.textContent   = 'Press any key to try again!';
+  modalMsg.textContent = 'Press any key to try again!';
   modalEl.classList.remove('hidden');
 }
 
 // ─────────────────────────────────────────────────────────────
-//  HUD UPDATES
+//  HUD
 // ─────────────────────────────────────────────────────────────
 function updateHeartsUI() {
   const leader = chars[leaderIdx];
@@ -1073,38 +718,50 @@ function updateBadgeUI() {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  REINIT  –  full scene wipe & restart
+//  SCENE RESET
 // ─────────────────────────────────────────────────────────────
 function clearScene() {
-  while (scene.children.length > 0) scene.remove(scene.children[0]);
+  while (scene.children.length > 0) {
+    const child = scene.children[0];
+    scene.remove(child);
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) {
+      if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+      else child.material.dispose();
+    }
+  }
+  scene.add(ambientLight);
+  scene.add(dirLight);
 }
 
 function initGame() {
   clearScene();
-  scene.background = new THREE.Color(0xbfdcf4);
-  platforms = [];
-  enemies   = [];
-  twinkleLights = [];
+  scene.background = new THREE.Color(0x87ceeb);
+  obstacles = [];
+  enemies = [];
   leaderHurtCooldown = 0;
-  createParallax();
+
+  createBackground();
   createLevel();
   spawnChars();
-  camX = chars[leaderIdx].pos.x;
-  camY = 0;
+
+  camTargetX = chars[leaderIdx].worldX;
+  camTargetZ = chars[leaderIdx].worldZ;
+
   updateHeartsUI();
   updateBadgeUI();
 }
 
 // ─────────────────────────────────────────────────────────────
-//  UPDATE  –  main game loop tick
+//  UPDATE
 // ─────────────────────────────────────────────────────────────
 function update(dt) {
   if (gameState !== 'play') return;
   dt = Math.min(dt, C.MAX_DT);
 
-  const leader = chars[leaderIdx];
+  const time = performance.now() / 1000;
 
-  // ── Leader switch (Tab) ────────────────────────────────
+  // ── Leader switch (Tab) ──
   if (consumeJust('Tab')) {
     leaderIdx = (leaderIdx + 1) % chars.length;
     SFX.menu();
@@ -1112,200 +769,162 @@ function update(dt) {
     updateHeartsUI();
   }
 
-  // ── Mute toggle ───────────────────────────────────────
+  // ── Mute toggle ──
   if (consumeJust('KeyM')) {
     muted = !muted;
     muteBadge.textContent = muted ? '🔇' : '🔊';
   }
 
-  // ── Pause ─────────────────────────────────────────────
+  // ── Pause ──
   if (consumeJust('Escape')) {
     gameState = 'pause';
     modalTitle.textContent = '⏸ PAUSED';
-    modalMsg.textContent   = 'Press Escape to continue';
+    modalMsg.textContent = 'Press Escape to continue';
     modalEl.classList.remove('hidden');
     return;
   }
 
-  // ── Leader input ──────────────────────────────────────
+  // ── Camera direction vectors ──
+  updateCamDirections();
+
+  // ── Leader input ──
   {
     const ch = chars[leaderIdx];
-    const isKnockedBack = ch.knockbackTimer > 0;
+    const isKB = ch.knockbackTimer > 0;
     ch.knockbackTimer = Math.max(0, ch.knockbackTimer - dt);
 
-    if (!isKnockedBack) {
-      const movingLeft  = keys.has('KeyA') || keys.has('ArrowLeft');
-      const movingRight = keys.has('KeyD') || keys.has('ArrowRight');
+    if (!isKB) {
+      let mx = 0, mz = 0;
+      const up    = keys.has('KeyW') || keys.has('ArrowUp');
+      const down  = keys.has('KeyS') || keys.has('ArrowDown');
+      const left  = keys.has('KeyA') || keys.has('ArrowLeft');
+      const right = keys.has('KeyD') || keys.has('ArrowRight');
 
-      if (movingRight) { ch.vx =  C.MOVE_SPD; ch.facingRight = true; }
-      else if (movingLeft) { ch.vx = -C.MOVE_SPD; ch.facingRight = false; }
-      else ch.vx = 0;
+      if (up)    { mx += _camFwd.x; mz += _camFwd.z; }
+      if (down)  { mx -= _camFwd.x; mz -= _camFwd.z; }
+      if (left)  { mx += _camRight.x; mz += _camRight.z; }
+      if (right) { mx -= _camRight.x; mz -= _camRight.z; }
 
-      if (ch.type === 'fly') {
-        // Flying character: W/S / Up/Down for vertical, Space = extra thrust up
-        const movingUp   = keys.has('KeyW') || keys.has('ArrowUp');
-        const movingDown = keys.has('KeyS') || keys.has('ArrowDown');
-        if (movingUp || keys.has('Space'))  ch.vy =  C.FLY_THRUST;
-        else if (movingDown)                ch.vy = -C.FLY_THRUST;
-        else ch.vy *= C.FLY_DAMP;
+      const ml = Math.sqrt(mx * mx + mz * mz);
+      if (ml > 0.01) {
+        mx /= ml; mz /= ml;
+        ch.vx = mx * C.MOVE_SPD;
+        ch.vz = mz * C.MOVE_SPD;
+        ch.facingAngle = Math.atan2(mz, mx);
       } else {
-        // Ground character: gravity + jump
-        ch.vy += C.GRAVITY * dt;
-        ch.vy  = Math.max(ch.vy, C.MAX_FALL);
-        const wantsJump = keys.has('Space') || keys.has('KeyW') || keys.has('ArrowUp');
-        if (wantsJump && ch.grounded) { ch.vy = C.JUMP_VY; SFX.jump(); }
+        ch.vx = 0;
+        ch.vz = 0;
       }
     } else {
-      // Decay knockback horizontal component
-      ch.vx *= 0.7;
-      if (ch.type !== 'fly') {
-        ch.vy += C.GRAVITY * dt;
-        ch.vy = Math.max(ch.vy, C.MAX_FALL);
-      }
+      ch.vx = ch.knockbackVx * (ch.knockbackTimer / C.KNOCKBACK_DUR);
+      ch.vz = ch.knockbackVz * (ch.knockbackTimer / C.KNOCKBACK_DUR);
     }
 
     // Attack
     ch.attackCooldown = Math.max(0, ch.attackCooldown - dt);
     if (consumeJust('KeyF') || consumeJust('Enter')) {
       if (ch.attackCooldown <= 0) {
-        ch.attackCooldown = C.ATTACK_COOLDOWN;
         doAttack(ch);
       }
     }
 
-    // Euler integration
-    ch.pos.x += ch.vx * dt;
-    ch.pos.y += ch.vy * dt;
+    ch.worldX += ch.vx * dt;
+    ch.worldZ += ch.vz * dt;
 
-    if (ch.type !== 'fly') resolveCollision(ch);
-    else {
-      // Flying: only side-wall and ceiling/floor clamp (no platform landing)
-      ch.pos.x = Math.max(CHAR_HW, Math.min(WORLD_W - CHAR_HW, ch.pos.x));
-      ch.pos.y = Math.max(C.FLOOR_Y + CHAR_HH, Math.min(WORLD_H / 2 - CHAR_HH, ch.pos.y));
+    const pushed = pushOutOfObstacles(ch.worldX, ch.worldZ, 0.5);
+    ch.worldX = pushed.x; ch.worldZ = pushed.z;
+    const clamped = clampToWorld(ch.worldX, ch.worldZ, 0.5);
+    ch.worldX = clamped.x; ch.worldZ = clamped.z;
+
+    // Flip sprite based on screen-space direction
+    if (Math.abs(ch.vx) > 0.1 || Math.abs(ch.vz) > 0.1) {
+      const worldDir = new THREE.Vector3(ch.vx, 0, ch.vz);
+      const screenDir = worldDir.project(camera);
+      ch.sprite.scale.x = Math.abs(ch.sprite.scale.x) * (screenDir.x >= 0 ? 1 : -1);
     }
   }
 
-  // ── Record history for leash ───────────────────────────
+  // ── Record history ──
   chars[leaderIdx].recordHistory();
 
-  // ── Followers (leash breadcrumb) ──────────────────────
+  // ── Followers ──
   for (let i = 0; i < chars.length; i++) {
     if (i === leaderIdx) continue;
-    const ch   = chars[i];
-    // Each follower tracks the leader's N-frames-ago position
-    // (simple broadcast leash: every follower lags behind the leader)
+    const ch = chars[i];
     const target = chars[leaderIdx].historyAt(C.LEASH_FRAMES);
-    ch.pos.x += (target.x - ch.pos.x) * C.LEASH_LERP;
-    ch.pos.y += (target.y - ch.pos.y) * C.LEASH_LERP;
-    ch.recordHistory();
 
-    // Gravity for non-fly followers so they land on platforms
-    if (ch.type !== 'fly') {
-      ch.vy += C.GRAVITY * dt;
-      ch.vy  = Math.max(ch.vy, C.MAX_FALL);
-      ch.pos.y += ch.vy * dt;
-      resolveCollision(ch);
+    ch.worldX += (target.x - ch.worldX) * C.LEASH_LERP;
+    ch.worldZ += (target.z - ch.worldZ) * C.LEASH_LERP;
+
+    const dx = target.x - ch.worldX;
+    const dz = target.z - ch.worldZ;
+    if (Math.abs(dx) > 0.05 || Math.abs(dz) > 0.05) {
+      ch.facingAngle = Math.atan2(dz, dx);
     }
+
+    const pushed = pushOutOfObstacles(ch.worldX, ch.worldZ, 0.4);
+    ch.worldX = pushed.x; ch.worldZ = pushed.z;
+    const clamped = clampToWorld(ch.worldX, ch.worldZ, 0.4);
+    ch.worldX = clamped.x; ch.worldZ = clamped.z;
+
+    ch.recordHistory();
+    ch.syncSprite(time);
   }
 
-  // ── Enemies ────────────────────────────────────────────
+  chars[leaderIdx].syncSprite(time);
+
+  // ── Enemies ──
   for (const en of enemies) {
     if (en.dead) continue;
+
     en.knockbackTimer = Math.max(0, en.knockbackTimer - dt);
+    en.flashTimer = Math.max(0, en.flashTimer - dt);
 
-    if (en.knockbackTimer <= 0) {
-      // Normal patrol
-      en.pos.x += en.vx * dt;
-      if (en.pos.x > en.maxX) { en.pos.x = en.maxX; en.vx = -C.ENEMY_SPD; }
-      if (en.pos.x < en.minX) { en.pos.x = en.minX; en.vx =  C.ENEMY_SPD; }
+    if (en.knockbackTimer > 0) {
+      const factor = en.knockbackTimer / C.KNOCKBACK_DUR;
+      en.worldX += en.knockbackVx * factor * dt;
+      en.worldZ += en.knockbackVz * factor * dt;
     } else {
-      // Knockback still active
-      en.pos.x += en.vx * dt;
-      en.pos.y += en.vy * dt;
-      en.vy += C.GRAVITY * dt;
+      const wp = en.patrolPoints[en.patrolIdx];
+      const dx = wp.x - en.worldX;
+      const dz = wp.z - en.worldZ;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+
+      if (dist < 0.5) {
+        en.patrolIdx = (en.patrolIdx + 1) % en.patrolPoints.length;
+      } else {
+        en.worldX += (dx / dist) * C.ENEMY_SPD * dt;
+        en.worldZ += (dz / dist) * C.ENEMY_SPD * dt;
+      }
     }
 
-    // Keep enemy on floor (simple gravity snap)
-    if (en.pos.y <= C.FLOOR_Y + 0.55) {
-      en.pos.y = C.FLOOR_Y + 0.55;
-      en.vy = 0;
-    }
+    const pushed = pushOutOfObstacles(en.worldX, en.worldZ, 0.5);
+    en.worldX = pushed.x; en.worldZ = pushed.z;
+    const clamped = clampToWorld(en.worldX, en.worldZ, 0.5);
+    en.worldX = clamped.x; en.worldZ = clamped.z;
 
-    // Sync eye sprite
-    en.eyeSprite.position.set(en.pos.x, en.pos.y + 0.25, 1.1);
+    en.syncSprite(time);
   }
 
-  // ── Enemy contact damage ───────────────────────────────
+  // ── Enemy contact damage ──
   checkEnemyContact(dt);
 
-  // ── Animations ────────────────────────────────────────
-  const t = performance.now() / 1000;
-  for (let i = 0; i < chars.length; i++) {
-    const ch = chars[i];
-    if (ch.type === 'fly') {
-      // Wing flap: oscillate scale Y of the sprite
-      const flap = 1 + 0.22 * Math.sin(t * 8 + i);
-      ch.sprite.scale.y = (CHAR_HH * 2 + 0.4) * flap;
-      // Gentle hover bob
-      ch.sprite.position.y += 0.04 * Math.sin(t * 3 + i);
-    } else {
-      // Walk bob: tiny vertical squash/stretch when moving horizontally
-      const moving = Math.abs(ch.vx) > 0.5;
-      const bob = moving ? 1 + 0.08 * Math.sin(t * 12 + i) : 1;
-      ch.sprite.scale.y = (CHAR_HH * 2 + 0.4) * bob;
-    }
-    // Face direction (flip sprite X)
-    ch.sprite.scale.x = Math.abs(ch.sprite.scale.x) * (ch.facingRight ? 1 : -1);
-  }
+  // ── Camera follow ──
+  camTargetX += (chars[leaderIdx].worldX - camTargetX) * C.CAM_LERP;
+  camTargetZ += (chars[leaderIdx].worldZ - camTargetZ) * C.CAM_LERP;
 
-  // ── Camera follow ──────────────────────────────────────
-  const leaderPosX = chars[leaderIdx].pos.x;
-  const leaderPosY = chars[leaderIdx].pos.y;
+  const camMargin = 10;
+  const clampedCamX = Math.max(camMargin, Math.min(C.WORLD_SIZE - camMargin, camTargetX));
+  const clampedCamZ = Math.max(camMargin, Math.min(C.WORLD_SIZE - camMargin, camTargetZ));
 
-  // Move camera only outside dead-zone
-  if (Math.abs(leaderPosX - camX) > C.CAM_DEAD_X) {
-    camX += (leaderPosX - camX) * C.CAM_LERP;
-  }
-  camY += (leaderPosY * 0.4 - camY) * C.CAM_LERP;
-
-  // Clamp camera to world bounds
-  const halfVW = C.SCREEN_W / 2;
-  const halfVH = (C.SCREEN_W / (window.innerWidth / window.innerHeight)) / 2;
-  camX = Math.max(halfVW, Math.min(WORLD_W - halfVW, camX));
-  camY = Math.max(-C.SCREEN_H / 2 + halfVH, Math.min(C.SCREEN_H, camY));
-
-  camera.position.x = camX;
-  camera.position.y = camY;
-
-  // Parallax is updated in updateParallax() after update() using prevCamX delta.
+  camera.position.set(clampedCamX, C.CAM_HEIGHT, clampedCamZ + C.CAM_DIST);
+  camera.lookAt(clampedCamX, 0, clampedCamZ);
 }
 
 // ─────────────────────────────────────────────────────────────
-//  PARALLAX  (needs previous frame camX, tracked separately)
-// ─────────────────────────────────────────────────────────────
-let prevCamX = 0;
-
-function updateParallax() {
-  const dx = camera.position.x - prevCamX;
-  prevCamX = camera.position.x;
-  // Layers move in OPPOSITE direction of camera  
-  // (world is fixed; only bg layers appear to slide slower)
-  if (parLayer1) parLayer1.group.position.x -= dx * (1 - C.PAR_FAR);
-  if (parLayer2) parLayer2.group.position.x -= dx * (1 - C.PAR_MID);
-
-  // Very subtle night twinkle so the city feels alive but quiet.
-  const t = performance.now() / 1000;
-  for (let i = 0; i < twinkleLights.length; i++) {
-    const phase = i * 0.63;
-    twinkleLights[i].opacity = 0.012 + 0.018 * (0.5 + 0.5 * Math.sin(t * 0.55 + phase));
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-//  GAME-STATE INPUT  (start / pause screens)
+//  STATE INPUT
 // ─────────────────────────────────────────────────────────────
 function handleStateInput() {
-  // Only consume justDown for non-play states so update() can still read F/Enter/Tab/Escape.
   if (gameState === 'start' && justDown.size > 0) {
     justDown.clear();
     ensureAudio();
@@ -1341,12 +960,11 @@ let lastTime = performance.now();
 function loop() {
   requestAnimationFrame(loop);
   const now = performance.now();
-  const dt  = (now - lastTime) / 1000;
-  lastTime  = now;
+  const dt = (now - lastTime) / 1000;
+  lastTime = now;
 
   handleStateInput();
   update(dt);
-  updateParallax();
   renderer.render(scene, camera);
 }
 
@@ -1355,4 +973,3 @@ function loop() {
 // ─────────────────────────────────────────────────────────────
 initGame();
 loop();
-
