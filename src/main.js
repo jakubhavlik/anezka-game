@@ -136,10 +136,19 @@ window.addEventListener('resize', () => {
 const loader = new THREE.TextureLoader();
 const _texCache = {};
 
-function loadTex(url, repeatX, repeatY) {
+function loadTex(url, repeatX, repeatY, onLoaded) {
   const key = `${url}_${repeatX}_${repeatY}`;
-  if (_texCache[key]) return _texCache[key];
-  const tex = loader.load(url);
+  if (_texCache[key]) {
+    // Already cached – fire callback immediately if image dimensions are available
+    if (onLoaded) {
+      const t = _texCache[key];
+      if (t.image && t.image.width) onLoaded(t, t.image.width, t.image.height);
+    }
+    return _texCache[key];
+  }
+  const tex = loader.load(url, (t) => {
+    if (onLoaded) onLoaded(t, t.image.width, t.image.height);
+  });
   tex.colorSpace = THREE.SRGBColorSpace;
   if (repeatX || repeatY) {
     tex.wrapS = THREE.RepeatWrapping;
@@ -294,10 +303,16 @@ class Character {
     this.knockbackVx = 0;
     this.knockbackVz = 0;
 
-    const tex = loadTex(def.url);
-    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+    // Load texture; once the image is decoded, correct the sprite width
+    // so the hand-drawn sprite keeps its natural aspect ratio.
+    const tex = loadTex(def.url, null, null, (_t, imgW, imgH) => {
+      this.w = def.h * (imgW / imgH);
+      this.sprite.scale.set(this.w, def.h, 1);
+    });
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
     this.sprite = new THREE.Sprite(mat);
-    this.sprite.scale.set(def.w, def.h, 1);
+    // Start with a square placeholder – corrected by callback above
+    this.sprite.scale.set(def.h, def.h, 1);
     this.sprite.position.set(startX, def.h / 2, startZ);
     scene.add(this.sprite);
 
@@ -399,16 +414,23 @@ class Enemy {
 //  BUILDING HELPER
 // ─────────────────────────────────────────────────────────────
 function createBuilding(x, z, texUrl, worldW, worldH, collisionRadius) {
-  const tex = loadTex(texUrl);
   const geo = new THREE.PlaneGeometry(worldW, worldH);
   const mat = new THREE.MeshBasicMaterial({
-    map: tex,
-    transparent: false,
+    transparent: true,
+    alphaTest: 0.1,   // clip background fringe pixels from hand-drawn scans
     side: THREE.DoubleSide,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(x, worldH / 2, z);
   scene.add(mesh);
+
+  // Load texture; auto-adjust mesh width to match image aspect ratio
+  loadTex(texUrl, null, null, (tex, imgW, imgH) => {
+    mat.map = tex;
+    mat.needsUpdate = true;
+    // Scale mesh X so the image fills worldH units tall at its natural ratio
+    mesh.scale.x = (worldH * (imgW / imgH)) / worldW;
+  });
 
   if (collisionRadius > 0) {
     obstacles.push({ x, z, radius: collisionRadius });
